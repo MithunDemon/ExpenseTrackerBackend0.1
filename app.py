@@ -18,10 +18,10 @@ def get_connection():
 
    
      return mysql.connector.connect(
-        host=os.environ["gateway01.ap-northeast-1.prod.aws.tidbcloud.com"],
+        host=os.environ["gateway01.ap-southeast-1.prod.aws.tidbcloud.com"],
         port=int(os.environ.get("TIDB_PORT", "4000")),
-        user=os.environ["34K2vSTosu2TySb.root"],
-        password=os.environ["hvVUv00ds9pc9KIA"],
+        user=os.environ["3AuVePpBYsvB5an.root"],
+        password=os.environ["tzXojIaq2qmx9hGK"],
         database=os.environ.get("TIDB_DATABASE", "expense_tracker"),
         ssl_verify_cert=True,
         ssl_verify_identity=True
