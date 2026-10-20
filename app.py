@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import mysql.connector
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
+
 
 app = Flask(__name__)
 
@@ -12,14 +13,13 @@ app = Flask(__name__)
 def get_connection():
 
     return mysql.connector.connect(
-        host="gateway01.ap-southeast-1.prod.aws.tidbcloud.com",
-        user="3AuVePpBYsvB5an.root",
-        password="gp2jNUvNbID1CWT5",
-        database="ETAPP",
-        port=4000,
-        ssl_verify_cert=True,
-        ssl_verify_identity=True,
-        ssl_ca="/etc/ssl/certs/ca-certificates.crt"
+        host="localhost",
+        user="root",
+        password="msr",
+        database="expense_tracker",
+        port=3309,
+        charset="utf8",
+        use_pure=True
     )
 
 
@@ -138,7 +138,7 @@ def register():
 
         insert_query = """
             INSERT INTO users
-            (name, email, password)
+            (fullname, email, password)
             VALUES (%s, %s, %s)
         """
 
@@ -150,7 +150,6 @@ def register():
                 hashed_password
             )
         )
-
 
         conn.commit()
 
@@ -172,7 +171,507 @@ def register():
         if conn:
             conn.rollback()
 
-        print("ERROR:", e)
+        print("REGISTER ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ==========================================
+# LOGIN
+# ==========================================
+
+@app.route("/login", methods=["POST"])
+def login():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # Get JSON from Android
+        data = request.get_json()
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "No data received"
+            }), 400
+
+
+        # Get values
+        email = data.get("email")
+        password = data.get("password")
+
+
+        # ==========================================
+        # CHECK EMPTY FIELDS
+        # ==========================================
+
+        if not email or not password:
+
+            return jsonify({
+                "success": False,
+                "message": "Email and password are required"
+            }), 400
+
+
+        # ==========================================
+        # DATABASE CONNECTION
+        # ==========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(dictionary=True)
+
+
+        # ==========================================
+        # FIND USER
+        # ==========================================
+
+        query = """
+            SELECT id, fullname, email, password
+            FROM users
+            WHERE email = %s
+        """
+
+        cursor.execute(
+            query,
+            (email,)
+        )
+
+        user = cursor.fetchone()
+
+
+        # ==========================================
+        # USER NOT FOUND
+        # ==========================================
+
+        if not user:
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid email or password"
+            }), 401
+
+
+        # ==========================================
+        # CHECK PASSWORD
+        # ==========================================
+
+        if not check_password_hash(
+                user["password"],
+                password):
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid email or password"
+            }), 401
+
+
+        # ==========================================
+        # LOGIN SUCCESS
+        # ==========================================
+
+        return jsonify({
+            "success": True,
+            "message": "Login successful",
+            "id": user["id"],
+            "name": user["fullname"],
+            "email": user["email"]
+        }), 200
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print("LOGIN ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ==========================================
+# ADD EXPENSE
+# ==========================================
+
+@app.route("/add_expense", methods=["POST"])
+def add_expense():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json()
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "No data received"
+            }), 400
+
+
+        # ==========================================
+        # GET DATA
+        # ==========================================
+
+        user_id = data.get("user_id")
+        amount = data.get("amount")
+        category = data.get("category")
+        description = data.get("description")
+        date = data.get("date")
+
+
+        # ==========================================
+        # VALIDATION
+        # ==========================================
+
+        if not user_id:
+
+            return jsonify({
+                "success": False,
+                "message": "User ID is required"
+            }), 400
+
+
+        if not amount:
+
+            return jsonify({
+                "success": False,
+                "message": "Amount is required"
+            }), 400
+
+
+        if not category:
+
+            return jsonify({
+                "success": False,
+                "message": "Category is required"
+            }), 400
+
+
+        if not date:
+
+            return jsonify({
+                "success": False,
+                "message": "Date is required"
+            }), 400
+
+
+        # ==========================================
+        # DATABASE
+        # ==========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor()
+
+
+        sql = """
+            INSERT INTO transactions
+            (
+                user_id,
+                type,
+                category,
+                amount,
+                description,
+                transaction_date
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+
+
+        values = (
+            user_id,
+            "Expense",
+            category,
+            amount,
+            description,
+            date
+        )
+
+
+        cursor.execute(sql, values)
+
+        conn.commit()
+
+
+        # ==========================================
+        # SUCCESS
+        # ==========================================
+
+        return jsonify({
+            "success": True,
+            "message": "Expense added successfully"
+        }), 201
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print("EXPENSE ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ==========================================
+# ADD INCOME
+# ==========================================
+
+@app.route("/add_income", methods=["POST"])
+def add_income():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        data = request.get_json()
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "No data received"
+            }), 400
+
+
+        # ==========================================
+        # GET DATA
+        # ==========================================
+
+        user_id = data.get("user_id")
+        amount = data.get("amount")
+        source = data.get("source")
+        description = data.get("description")
+        date = data.get("date")
+
+
+        # ==========================================
+        # VALIDATION
+        # ==========================================
+
+        if not user_id:
+
+            return jsonify({
+                "success": False,
+                "message": "User ID is required"
+            }), 400
+
+
+        if not amount:
+
+            return jsonify({
+                "success": False,
+                "message": "Amount is required"
+            }), 400
+
+
+        if not source:
+
+            return jsonify({
+                "success": False,
+                "message": "Income source is required"
+            }), 400
+
+
+        if not date:
+
+            return jsonify({
+                "success": False,
+                "message": "Date is required"
+            }), 400
+
+
+        # ==========================================
+        # DATABASE
+        # ==========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor()
+
+
+        sql = """
+            INSERT INTO transactions
+            (
+                user_id,
+                type,
+                category,
+                amount,
+                description,
+                transaction_date
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+
+
+        values = (
+            user_id,
+            "Income",
+            source,
+            amount,
+            description,
+            date
+        )
+
+
+        cursor.execute(sql, values)
+
+        conn.commit()
+
+
+        # ==========================================
+        # SUCCESS
+        # ==========================================
+
+        return jsonify({
+            "success": True,
+            "message": "Income added successfully"
+        }), 201
+
+
+    except Exception as e:
+
+        if conn:
+            conn.rollback()
+
+        print("INCOME ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+# ==========================================
+# GET USER TRANSACTIONS
+# ==========================================
+
+@app.route("/transactions", methods=["GET"])
+def get_transactions():
+
+    conn = None
+    cursor = None
+
+    try:
+
+        # ==========================================
+        # GET USER ID
+        # ==========================================
+
+        user_id = request.args.get("user_id")
+
+
+        if not user_id:
+
+            return jsonify({
+                "success": False,
+                "message": "User ID is required"
+            }), 400
+
+
+        # ==========================================
+        # DATABASE
+        # ==========================================
+
+        conn = get_connection()
+
+        cursor = conn.cursor(dictionary=True)
+
+
+        # ==========================================
+        # GET ONLY THIS USER'S TRANSACTIONS
+        # ==========================================
+
+        query = """
+            SELECT
+                id,
+                user_id,
+                type,
+                category,
+                amount,
+                description,
+                transaction_date,
+                created_at
+            FROM transactions
+            WHERE user_id = %s
+            ORDER BY id DESC
+        """
+
+
+        cursor.execute(
+            query,
+            (user_id,)
+        )
+
+
+        transactions = cursor.fetchall()
+
+
+        # ==========================================
+        # SUCCESS
+        # ==========================================
+
+        return jsonify({
+            "success": True,
+            "transactions": transactions
+        }), 200
+
+
+    except Exception as e:
+
+        print("TRANSACTIONS ERROR:", e)
 
         return jsonify({
             "success": False,
